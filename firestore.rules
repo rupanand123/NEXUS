@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isValidInquiry(data) {
+      return data.keys().hasAll(['name', 'email', 'service', 'message', 'status', 'createdAt'])
+        && data.keys().size() == 6
+        && data.name is string 
+        && data.email is string
+        && (data.status == 'new' || data.status == 'contacted' || data.status == 'resolved')
+        && data.createdAt == request.time;
+    }
+
+    match /inquiries/{inquiryId} {
+      allow create: if isValidInquiry(request.resource.data) && request.resource.data.status == 'new';
+      allow read, delete: if isAdmin();
+      allow update: if isAdmin() 
+        && isValidInquiry(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+    }
+
+    match /admins/{userId} {
+      allow read: if isSignedIn();
+    }
+  }
+}
